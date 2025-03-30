@@ -136,7 +136,7 @@ export default function Editor({ project, userId }: EditorProps) {
               <h2 className="section-title">${config.title}</h2>
               <p className="text-lg mb-12">${config.description}</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                ${config.features.map(feature => `
+                ${(config.features as Feature[]).map((feature: Feature) => `
                   <div className="card p-6">
                     ${feature.icon ? `<div className="text-3xl mb-4">${feature.icon}</div>` : ''}
                     <h3 className="text-xl font-semibold mb-4">${feature.title}</h3>
