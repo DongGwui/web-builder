@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import type { ProjectSettings, ComponentFile } from '@/lib/projectGenerator';
 import dynamic from 'next/dynamic';
@@ -67,15 +67,28 @@ interface ComponentConfig {
   };
 }
 
+interface Feature {
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+interface ProjectItem {
+  title: string;
+  description: string;
+  image?: string;
+  link?: string;
+}
+
 export default function Editor({ project, userId }: EditorProps) {
   const [currentSection, setCurrentSection] = useState<string | null>(null);
   const [editingComponent, setEditingComponent] = useState<ComponentFile | null>(null);
   const [componentConfig, setComponentConfig] = useState<Partial<ComponentConfig>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(true);
   const [components, setComponents] = useState<ComponentFile[]>(project.components);
   const [editMode, setEditMode] = useState<'visual' | 'code'>('visual');
+  const [sections] = useState<string[]>(project.settings.sections);
 
   // 선택된 섹션의 스타일 옵션 가져오기
   const getSectionOption = (sectionId: string) => {
@@ -96,11 +109,11 @@ export default function Editor({ project, userId }: EditorProps) {
     
     // 실시간 프리뷰를 위해 components 상태 업데이트
     setComponents(prev => 
-      prev.map(comp => comp.name === updatedComponent.name ? updatedComponent : comp)
+      prev.map((comp: ComponentFile) => comp.name === updatedComponent.name ? updatedComponent : comp)
     );
   };
 
-  // 컴포넌트 설정을 코드로 변환
+  // 컴포넌트 코드 생성
   const generateComponentCode = (type: keyof ComponentConfig, config: any) => {
     let code = '';
     switch (type) {
@@ -156,49 +169,8 @@ export default function Editor({ project, userId }: EditorProps) {
     
     setEditingComponent(updatedComponent);
     setComponents(prev => 
-      prev.map(comp => comp.name === updatedComponent.name ? updatedComponent : comp)
+      prev.map((comp: ComponentFile) => comp.name === updatedComponent.name ? updatedComponent : comp)
     );
-  };
-
-  // 컴포넌트 편집 UI 렌더링
-  const renderEditForm = (type: keyof ComponentConfig) => {
-    const config = componentConfig[type] || {};
-    
-    switch (type) {
-      case 'hero':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">제목</label>
-              <input
-                type="text"
-                value={config.title || ''}
-                onChange={e => handleConfigChange(type, { ...config, title: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">부제목</label>
-              <input
-                type="text"
-                value={config.subtitle || ''}
-                onChange={e => handleConfigChange(type, { ...config, subtitle: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">버튼 텍스트</label>
-              <input
-                type="text"
-                value={config.ctaText || ''}
-                onChange={e => handleConfigChange(type, { ...config, ctaText: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-        );
-      // 다른 컴포넌트 타입에 대한 폼 추가
-    }
   };
 
   // 컴포넌트 수정사항 저장
@@ -227,6 +199,125 @@ export default function Editor({ project, userId }: EditorProps) {
       setError('컴포넌트 저장 중 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // about 섹션의 특징 렌더링
+  const renderFeatures = (aboutConfig: ComponentConfig['about']) => {
+    return (
+      <div className="space-y-2">
+        {(aboutConfig.features || []).map((feature: Feature, index: number) => (
+          <div
+            key={`feature-${index}`}
+            className="bg-white rounded-lg border border-gray-200 p-4"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">특징 {index + 1}</span>
+            </div>
+            <input
+              type="text"
+              value={feature.title || ''}
+              onChange={e => {
+                const newFeatures = [...(aboutConfig.features || [])];
+                newFeatures[index] = { ...feature, title: e.target.value };
+                handleConfigChange('about', { ...aboutConfig, features: newFeatures });
+              }}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="특징 제목"
+            />
+            <textarea
+              value={feature.description || ''}
+              onChange={e => {
+                const newFeatures = [...(aboutConfig.features || [])];
+                newFeatures[index] = { ...feature, description: e.target.value };
+                handleConfigChange('about', { ...aboutConfig, features: newFeatures });
+              }}
+              className="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              placeholder="특징 설명"
+              rows={2}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // 컴포넌트 편집 UI 렌더링
+  const renderEditForm = (type: keyof ComponentConfig) => {
+    const config = componentConfig[type] || {};
+    
+    switch (type) {
+      case 'hero':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">제목</label>
+              <input
+                type="text"
+                value={(config as any).title || ''}
+                onChange={e => handleConfigChange(type, { ...config, title: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">부제목</label>
+              <input
+                type="text"
+                value={(config as any).subtitle || ''}
+                onChange={e => handleConfigChange(type, { ...config, subtitle: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">버튼 텍스트</label>
+              <input
+                type="text"
+                value={(config as any).ctaText || ''}
+                onChange={e => handleConfigChange(type, { ...config, ctaText: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        );
+      case 'about':
+        const aboutConfig = config as ComponentConfig['about'];
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">제목</label>
+              <input
+                type="text"
+                value={aboutConfig.title || ''}
+                onChange={e => handleConfigChange(type, { ...aboutConfig, title: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">설명</label>
+              <textarea
+                value={aboutConfig.description || ''}
+                onChange={e => handleConfigChange(type, { ...aboutConfig, description: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                rows={3}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">특징</label>
+              {renderFeatures(aboutConfig)}
+              <button
+                type="button"
+                onClick={() => {
+                  const newFeatures = [...(aboutConfig.features || []), { title: '', description: '' }];
+                  handleConfigChange(type, { ...aboutConfig, features: newFeatures });
+                }}
+                className="mt-2 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+              >
+                특징 추가
+              </button>
+            </div>
+          </div>
+        );
+      // 다른 컴포넌트 타입에 대한 폼 추가
     }
   };
 
@@ -296,55 +387,61 @@ export default function Editor({ project, userId }: EditorProps) {
               )}
             </div>
           ) : (
-            project.settings.sections.map(section => {
-              const [sectionId] = section.split(':');
-              const option = getSectionOption(sectionId);
-              const component = components.find(c => c.name.startsWith(`${sectionId}.`));
-              
-              return (
-                <div
-                  key={section}
-                  className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
-                >
-                  <h3 className="text-lg font-medium text-gray-900">
-                    {sectionId} ({option})
-                  </h3>
-                  {component && (
-                    <div className="mt-4">
-                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-gray-50 p-4 text-sm text-gray-600">
-                        {component.content}
-                      </pre>
-                    </div>
-                  )}
-                  <button
-                    className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                    onClick={() => {
-                      const type = sectionId as keyof ComponentConfig;
-                      setEditMode('visual');
-                      setEditingComponent(component || null);
-                      // 컴포넌트 설정 초기화
-                      setComponentConfig({
-                        [type]: {
-                          title: '',
-                          subtitle: '',
-                          ctaText: '',
-                          // 다른 기본값 설정
-                        }
-                      });
-                    }}
+            <div className="space-y-4">
+              {sections.map((section, index) => {
+                const [sectionId] = section.split(':');
+                const option = getSectionOption(sectionId);
+                const component = components.find(c => c.name.startsWith(`${sectionId}.`));
+                
+                return (
+                  <div
+                    key={section}
+                    className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
                   >
-                    편집
-                  </button>
-                </div>
-              );
-            })
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-medium text-gray-900">
+                        {sectionId} ({option})
+                      </h3>
+                    </div>
+                    {component && (
+                      <div className="mt-4">
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-gray-50 p-4 text-sm text-gray-600">
+                          {component.content}
+                        </pre>
+                      </div>
+                    )}
+                    <button
+                      className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                      onClick={() => {
+                        const type = sectionId as keyof ComponentConfig;
+                        setEditMode('visual');
+                        setEditingComponent(component || null);
+                        setComponentConfig({
+                          [type]: {
+                            title: '',
+                            subtitle: '',
+                            ctaText: '',
+                          }
+                        });
+                      }}
+                    >
+                      편집
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
         {/* 오른쪽: 실시간 프리뷰 */}
         <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="h-[800px] overflow-hidden rounded-lg">
-            <HotReload components={components} settings={project.settings} />
+            <HotReload 
+              key={project.id}
+              components={components} 
+              settings={project.settings}
+            />
           </div>
         </div>
       </div>
