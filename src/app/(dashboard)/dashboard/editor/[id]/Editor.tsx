@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import type { ProjectSettings, ComponentFile } from '@/lib/projectGenerator';
 import dynamic from 'next/dynamic';
+import HotReload from '@/components/HotReload';
 
 // Monaco 에디터를 동적으로 불러오기
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -27,13 +28,54 @@ interface EditorProps {
   userId: string;
 }
 
+interface ComponentConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    ctaText: string;
+    backgroundImage?: string;
+  };
+  about: {
+    title: string;
+    description: string;
+    features: Array<{
+      title: string;
+      description: string;
+      icon?: string;
+    }>;
+  };
+  projects: {
+    title: string;
+    description: string;
+    items: Array<{
+      title: string;
+      description: string;
+      image?: string;
+      link?: string;
+    }>;
+  };
+  contact: {
+    title: string;
+    description: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    socialLinks?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  };
+}
+
 export default function Editor({ project, userId }: EditorProps) {
   const [currentSection, setCurrentSection] = useState<string | null>(null);
   const [editingComponent, setEditingComponent] = useState<ComponentFile | null>(null);
+  const [componentConfig, setComponentConfig] = useState<Partial<ComponentConfig>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(true);
+  const [components, setComponents] = useState<ComponentFile[]>(project.components);
+  const [editMode, setEditMode] = useState<'visual' | 'code'>('visual');
 
   // 선택된 섹션의 스타일 옵션 가져오기
   const getSectionOption = (sectionId: string) => {
@@ -46,10 +88,117 @@ export default function Editor({ project, userId }: EditorProps) {
   // 컴포넌트 코드 수정 처리
   const handleCodeChange = (value: string | undefined) => {
     if (!editingComponent || !value) return;
-    setEditingComponent({
+    const updatedComponent = {
       ...editingComponent,
       content: value
-    });
+    };
+    setEditingComponent(updatedComponent);
+    
+    // 실시간 프리뷰를 위해 components 상태 업데이트
+    setComponents(prev => 
+      prev.map(comp => comp.name === updatedComponent.name ? updatedComponent : comp)
+    );
+  };
+
+  // 컴포넌트 설정을 코드로 변환
+  const generateComponentCode = (type: keyof ComponentConfig, config: any) => {
+    let code = '';
+    switch (type) {
+      case 'hero':
+        code = `
+          return (
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+              <h1 className="section-title">${config.title}</h1>
+              <p className="text-xl mb-8">${config.subtitle}</p>
+              <button className="button">${config.ctaText}</button>
+              ${config.backgroundImage ? `<img src="${config.backgroundImage}" alt="배경" className="absolute inset-0 w-full h-full object-cover -z-10" />` : ''}
+            </div>
+          );
+        `;
+        break;
+      case 'about':
+        code = `
+          return (
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+              <h2 className="section-title">${config.title}</h2>
+              <p className="text-lg mb-12">${config.description}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                ${config.features.map(feature => `
+                  <div className="card p-6">
+                    ${feature.icon ? `<div className="text-3xl mb-4">${feature.icon}</div>` : ''}
+                    <h3 className="text-xl font-semibold mb-4">${feature.title}</h3>
+                    <p className="text-gray-600">${feature.description}</p>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          );
+        `;
+        break;
+      // 다른 컴포넌트 타입에 대한 코드 생성 로직 추가
+    }
+    return code.trim();
+  };
+
+  // 컴포넌트 설정 업데이트
+  const handleConfigChange = (type: keyof ComponentConfig, newConfig: any) => {
+    setComponentConfig(prev => ({
+      ...prev,
+      [type]: newConfig
+    }));
+
+    // 새로운 코드 생성 및 컴포넌트 업데이트
+    const newCode = generateComponentCode(type, newConfig);
+    const updatedComponent = {
+      ...editingComponent!,
+      content: newCode
+    };
+    
+    setEditingComponent(updatedComponent);
+    setComponents(prev => 
+      prev.map(comp => comp.name === updatedComponent.name ? updatedComponent : comp)
+    );
+  };
+
+  // 컴포넌트 편집 UI 렌더링
+  const renderEditForm = (type: keyof ComponentConfig) => {
+    const config = componentConfig[type] || {};
+    
+    switch (type) {
+      case 'hero':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">제목</label>
+              <input
+                type="text"
+                value={config.title || ''}
+                onChange={e => handleConfigChange(type, { ...config, title: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">부제목</label>
+              <input
+                type="text"
+                value={config.subtitle || ''}
+                onChange={e => handleConfigChange(type, { ...config, subtitle: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">버튼 텍스트</label>
+              <input
+                type="text"
+                value={config.ctaText || ''}
+                onChange={e => handleConfigChange(type, { ...config, ctaText: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        );
+      // 다른 컴포넌트 타입에 대한 폼 추가
+    }
   };
 
   // 컴포넌트 수정사항 저장
@@ -60,61 +209,22 @@ export default function Editor({ project, userId }: EditorProps) {
       setIsLoading(true);
       setError(null);
 
-      // 현재 프로젝트의 components 배열 업데이트
-      const updatedComponents = project.components.map(comp =>
-        comp.name === editingComponent.name ? editingComponent : comp
-      );
-
       // Supabase에 저장
       const { error: updateError } = await supabase
         .from('projects')
         .update({
-          components: updatedComponents
+          components: components
         })
         .eq('id', project.id);
 
       if (updateError) throw updateError;
 
-      // 프로젝트 객체 업데이트
-      project.components = updatedComponents;
-      
       // 편집 모드 종료
       setEditingComponent(null);
       setCurrentSection(null);
     } catch (err) {
       console.error('Failed to save component:', err);
       setError('컴포넌트 저장 중 오류가 발생했습니다.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 프리뷰 생성
-  const handlePreview = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const response = await fetch('/api/projects/preview', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId: project.id
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('프리뷰 생성에 실패했습니다.');
-      }
-
-      const data = await response.json();
-      setPreviewUrl(data.previewUrl);
-      setShowPreview(true);
-    } catch (err) {
-      console.error('Preview generation error:', err);
-      setError('프리뷰 생성 중 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
     }
@@ -128,16 +238,9 @@ export default function Editor({ project, userId }: EditorProps) {
           <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
           <p className="mt-2 text-gray-600">{project.description}</p>
         </div>
-        <button
-          onClick={handlePreview}
-          disabled={isLoading}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {isLoading ? '로딩 중...' : '프리뷰'}
-        </button>
       </div>
 
-      {/* 편집기 / 섹션 목록 */}
+      {/* 편집기와 프리뷰 */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* 왼쪽: 섹션 목록 또는 편집기 */}
         <div className="space-y-6">
@@ -149,7 +252,16 @@ export default function Editor({ project, userId }: EditorProps) {
                 </h3>
                 <div className="space-x-2">
                   <button
-                    onClick={() => setEditingComponent(null)}
+                    onClick={() => setEditMode(editMode === 'visual' ? 'code' : 'visual')}
+                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    {editMode === 'visual' ? '코드 편집' : '비주얼 편집'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingComponent(null);
+                      setComponents(project.components);
+                    }}
                     className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     취소
@@ -163,26 +275,31 @@ export default function Editor({ project, userId }: EditorProps) {
                   </button>
                 </div>
               </div>
-              <MonacoEditor
-                height="500px"
-                language="typescript"
-                theme="vs-dark"
-                value={editingComponent.content}
-                onChange={handleCodeChange}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                }}
-              />
+              
+              {editMode === 'visual' ? (
+                renderEditForm(editingComponent.name.split('.')[0] as keyof ComponentConfig)
+              ) : (
+                <MonacoEditor
+                  height="500px"
+                  language="typescript"
+                  theme="vs-dark"
+                  value={editingComponent.content}
+                  onChange={handleCodeChange}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 14,
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                  }}
+                />
+              )}
             </div>
           ) : (
             project.settings.sections.map(section => {
               const [sectionId] = section.split(':');
               const option = getSectionOption(sectionId);
-              const component = project.components.find(c => c.name.startsWith(`${sectionId}.`));
+              const component = components.find(c => c.name.startsWith(`${sectionId}.`));
               
               return (
                 <div
@@ -201,7 +318,20 @@ export default function Editor({ project, userId }: EditorProps) {
                   )}
                   <button
                     className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                    onClick={() => component && setEditingComponent(component)}
+                    onClick={() => {
+                      const type = sectionId as keyof ComponentConfig;
+                      setEditMode('visual');
+                      setEditingComponent(component || null);
+                      // 컴포넌트 설정 초기화
+                      setComponentConfig({
+                        [type]: {
+                          title: '',
+                          subtitle: '',
+                          ctaText: '',
+                          // 다른 기본값 설정
+                        }
+                      });
+                    }}
                   >
                     편집
                   </button>
@@ -211,20 +341,11 @@ export default function Editor({ project, userId }: EditorProps) {
           )}
         </div>
 
-        {/* 오른쪽: 프리뷰 */}
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-medium text-gray-900">프리뷰</h3>
-          {showPreview && previewUrl ? (
-            <iframe
-              src={previewUrl}
-              className="h-[800px] w-full rounded-md border border-gray-200"
-              title="프리뷰"
-            />
-          ) : (
-            <div className="flex h-[800px] items-center justify-center rounded-md border border-gray-200 bg-gray-50">
-              <p className="text-gray-500">프리뷰를 생성하려면 상단의 프리뷰 버튼을 클릭하세요.</p>
-            </div>
-          )}
+        {/* 오른쪽: 실시간 프리뷰 */}
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="h-[800px] overflow-hidden rounded-lg">
+            <HotReload components={components} settings={project.settings} />
+          </div>
         </div>
       </div>
 
